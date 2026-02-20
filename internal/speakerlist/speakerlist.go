@@ -403,13 +403,6 @@ func envBool(dst *bool, prefix, key string) {
 	}
 }
 
-func overrideString(dst *string, val string, ok bool) {
-	if !ok {
-		return
-	}
-	*dst = val
-}
-
 func overrideInt(dst *int, val string, ok bool, min, max int) {
 	if !ok {
 		return
