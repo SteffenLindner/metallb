@@ -342,7 +342,7 @@ func (sl *SpeakerList) memberlistWatchEvents() {
 	}
 }
 
-// Helper for custom config
+// Helper for custom config.
 
 // ApplyEnvOverrides mutates cfg based on env vars with the given prefix ("MEMBERLIST_").
 // Only overrides fields if the env var is set and valid.
@@ -350,30 +350,30 @@ func (sl *SpeakerList) memberlistWatchEvents() {
 //   MEMBERLIST_TCP_TIMEOUT="5s"
 //   MEMBERLIST_GOSSIP_INTERVAL="150ms"
 func ApplyEnvOverrides(cfg *memberlist.Config, prefix string) {
-    // Ints
-    envInt(&cfg.IndirectChecks, prefix, "INDIRECT_CHECKS", 0, 1_000_000)
-    envInt(&cfg.RetransmitMult, prefix, "RETRANSMIT_MULT", 0, 1_000_000)
-    envInt(&cfg.SuspicionMult, prefix, "SUSPICION_MULT", 0, 1_000_000)
-    envInt(&cfg.SuspicionMaxTimeoutMult, prefix, "SUSPICION_MAX_TIMEOUT_MULT", 0, 1_000_000)
-    envInt(&cfg.GossipNodes, prefix, "GOSSIP_NODES", 0, 1_000_000)
-    envInt(&cfg.AwarenessMaxMultiplier, prefix, "AWARENESS_MAX_MULTIPLIER", 0, 1_000_000)
-    envInt(&cfg.HandoffQueueDepth, prefix, "HANDOFF_QUEUE_DEPTH", 0, 10_000_000)
-    envInt(&cfg.UDPBufferSize, prefix, "UDP_BUFFER_SIZE", 0, 10_000_000)
+	// Ints
+	envInt(&cfg.IndirectChecks, prefix, "INDIRECT_CHECKS", 0, 1_000_000)
+	envInt(&cfg.RetransmitMult, prefix, "RETRANSMIT_MULT", 0, 1_000_000)
+	envInt(&cfg.SuspicionMult, prefix, "SUSPICION_MULT", 0, 1_000_000)
+	envInt(&cfg.SuspicionMaxTimeoutMult, prefix, "SUSPICION_MAX_TIMEOUT_MULT", 0, 1_000_000)
+	envInt(&cfg.GossipNodes, prefix, "GOSSIP_NODES", 0, 1_000_000)
+	envInt(&cfg.AwarenessMaxMultiplier, prefix, "AWARENESS_MAX_MULTIPLIER", 0, 1_000_000)
+	envInt(&cfg.HandoffQueueDepth, prefix, "HANDOFF_QUEUE_DEPTH", 0, 10_000_000)
+	envInt(&cfg.UDPBufferSize, prefix, "UDP_BUFFER_SIZE", 0, 10_000_000)
 
-    // Durations
-    envDuration(&cfg.TCPTimeout, prefix, "TCP_TIMEOUT", 0, 24*time.Hour)
-    envDuration(&cfg.PushPullInterval, prefix, "PUSH_PULL_INTERVAL", 0, 24*time.Hour)
-    envDuration(&cfg.ProbeTimeout, prefix, "PROBE_TIMEOUT", 0, 24*time.Hour)
-    envDuration(&cfg.ProbeInterval, prefix, "PROBE_INTERVAL", 0, 24*time.Hour)
-    envDuration(&cfg.GossipInterval, prefix, "GOSSIP_INTERVAL", 0, 24*time.Hour)
-    envDuration(&cfg.GossipToTheDeadTime, prefix, "GOSSIP_TO_THE_DEAD_TIME", 0, 24*time.Hour)
-    envDuration(&cfg.QueueCheckInterval, prefix, "QUEUE_CHECK_INTERVAL", 0, 24*time.Hour)
+	// Durations
+	envDuration(&cfg.TCPTimeout, prefix, "TCP_TIMEOUT", 0, 24*time.Hour)
+	envDuration(&cfg.PushPullInterval, prefix, "PUSH_PULL_INTERVAL", 0, 24*time.Hour)
+	envDuration(&cfg.ProbeTimeout, prefix, "PROBE_TIMEOUT", 0, 24*time.Hour)
+	envDuration(&cfg.ProbeInterval, prefix, "PROBE_INTERVAL", 0, 24*time.Hour)
+	envDuration(&cfg.GossipInterval, prefix, "GOSSIP_INTERVAL", 0, 24*time.Hour)
+	envDuration(&cfg.GossipToTheDeadTime, prefix, "GOSSIP_TO_THE_DEAD_TIME", 0, 24*time.Hour)
+	envDuration(&cfg.QueueCheckInterval, prefix, "QUEUE_CHECK_INTERVAL", 0, 24*time.Hour)
 
-    // Bools
-    envBool(&cfg.GossipVerifyIncoming, prefix, "GOSSIP_VERIFY_INCOMING")
-    envBool(&cfg.GossipVerifyOutgoing, prefix, "GOSSIP_VERIFY_OUTGOING")
-    envBool(&cfg.DisableTcpPings, prefix, "DISABLE_TCP_PINGS")
-    envBool(&cfg.EnableCompression, prefix, "ENABLE_COMPRESSION")
+	// Bools
+	envBool(&cfg.GossipVerifyIncoming, prefix, "GOSSIP_VERIFY_INCOMING")
+	envBool(&cfg.GossipVerifyOutgoing, prefix, "GOSSIP_VERIFY_OUTGOING")
+	envBool(&cfg.DisableTcpPings, prefix, "DISABLE_TCP_PINGS")
+	envBool(&cfg.EnableCompression, prefix, "ENABLE_COMPRESSION")
 }
 
 func env(prefix, key string) (string, bool) {
