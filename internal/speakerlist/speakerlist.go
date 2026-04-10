@@ -14,9 +14,10 @@ package speakerlist
 
 import (
 	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +27,98 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/hashicorp/memberlist"
 )
+
+// memberlistConfigPath is the well-known path where an optional memberlist
+// configuration file may be mounted (e.g. from a ConfigMap).
+const memberlistConfigPath = "/etc/metallb/memberlist/config.json"
+
+// memberlistFileConfig is the complete set of memberlist.Config fields exposed
+// for external configuration via a ConfigMap file. All fields are required when
+// the file is present — omitting a field is an error. Duration values must use
+// Go duration string format (e.g. "5s", "200ms").
+type memberlistFileConfig struct {
+	TCPTimeout              string `json:"TCPTimeout"`
+	IndirectChecks          int    `json:"IndirectChecks"`
+	RetransmitMult          int    `json:"RetransmitMult"`
+	SuspicionMult           int    `json:"SuspicionMult"`
+	SuspicionMaxTimeoutMult int    `json:"SuspicionMaxTimeoutMult"`
+	PushPullInterval        string `json:"PushPullInterval"`
+	ProbeTimeout            string `json:"ProbeTimeout"`
+	ProbeInterval           string `json:"ProbeInterval"`
+	DisableTcpPings         bool   `json:"DisableTcpPings"`
+	AwarenessMaxMultiplier  int    `json:"AwarenessMaxMultiplier"`
+	GossipNodes             int    `json:"GossipNodes"`
+	GossipInterval          string `json:"GossipInterval"`
+	GossipToTheDeadTime     string `json:"GossipToTheDeadTime"`
+	GossipVerifyIncoming    bool   `json:"GossipVerifyIncoming"`
+	GossipVerifyOutgoing    bool   `json:"GossipVerifyOutgoing"`
+	EnableCompression       bool   `json:"EnableCompression"`
+	HandoffQueueDepth       int    `json:"HandoffQueueDepth"`
+	UDPBufferSize           int    `json:"UDPBufferSize"`
+	QueueCheckInterval      string `json:"QueueCheckInterval"`
+}
+
+// loadMemberlistConfig returns a memberlist.Config seeded from DefaultLANConfig
+// (or DefaultWANConfig when wanConfig is true). If the file at path exists, it
+// is parsed as a complete JSON memberlist configuration and all fields are
+// applied unconditionally. A missing file is not an error; any other read or
+// parse error is.
+func loadMemberlistConfig(path string, wanConfig bool, logger log.Logger) (*memberlist.Config, error) {
+	cfg := memberlist.DefaultLANConfig()
+	if wanConfig {
+		cfg = memberlist.DefaultWANConfig()
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return nil, fmt.Errorf("reading memberlist config file %s: %w", path, err)
+	}
+
+	level.Info(logger).Log("op", "startup", "msg", "loading memberlist config from file", "path", path)
+
+	var fc memberlistFileConfig
+	if err := json.Unmarshal(data, &fc); err != nil {
+		return nil, fmt.Errorf("parsing memberlist config file %s: %w", path, err)
+	}
+
+	cfg.IndirectChecks = fc.IndirectChecks
+	cfg.RetransmitMult = fc.RetransmitMult
+	cfg.SuspicionMult = fc.SuspicionMult
+	cfg.SuspicionMaxTimeoutMult = fc.SuspicionMaxTimeoutMult
+	cfg.GossipNodes = fc.GossipNodes
+	cfg.AwarenessMaxMultiplier = fc.AwarenessMaxMultiplier
+	cfg.HandoffQueueDepth = fc.HandoffQueueDepth
+	cfg.UDPBufferSize = fc.UDPBufferSize
+	cfg.DisableTcpPings = fc.DisableTcpPings
+	cfg.GossipVerifyIncoming = fc.GossipVerifyIncoming
+	cfg.GossipVerifyOutgoing = fc.GossipVerifyOutgoing
+	cfg.EnableCompression = fc.EnableCompression
+
+	for _, item := range []struct {
+		dst *time.Duration
+		src string
+		key string
+	}{
+		{&cfg.TCPTimeout, fc.TCPTimeout, "TCPTimeout"},
+		{&cfg.PushPullInterval, fc.PushPullInterval, "PushPullInterval"},
+		{&cfg.ProbeTimeout, fc.ProbeTimeout, "ProbeTimeout"},
+		{&cfg.ProbeInterval, fc.ProbeInterval, "ProbeInterval"},
+		{&cfg.GossipInterval, fc.GossipInterval, "GossipInterval"},
+		{&cfg.GossipToTheDeadTime, fc.GossipToTheDeadTime, "GossipToTheDeadTime"},
+		{&cfg.QueueCheckInterval, fc.QueueCheckInterval, "QueueCheckInterval"},
+	} {
+		d, err := time.ParseDuration(item.src)
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s %q in memberlist config file: %w", item.key, item.src, err)
+		}
+		*item.dst = d
+	}
+
+	return cfg, nil
+}
 
 // SpeakerListInfo contains information about available speaker nodes.
 type SpeakerListInfo struct {
@@ -53,7 +146,7 @@ type SpeakerList struct {
 }
 
 // New creates a new SpeakerList and returns a pointer to it.
-func New(logger log.Logger, nodeName, bindAddr, bindPort, secret, namespace, labels string, WANNetwork bool, CustomConfig bool, stopCh chan struct{}) (*SpeakerList, error) {
+func New(logger log.Logger, nodeName, bindAddr, bindPort, secret, namespace, labels string, WANNetwork bool, stopCh chan struct{}) (*SpeakerList, error) {
 	sl := SpeakerList{
 		l:         logger,
 		stopCh:    stopCh,
@@ -68,13 +161,10 @@ func New(logger log.Logger, nodeName, bindAddr, bindPort, secret, namespace, lab
 		return &sl, nil
 	}
 
-	mconfig := memberlist.DefaultLANConfig()
-	if WANNetwork {
-		mconfig = memberlist.DefaultWANConfig()
-	}
-
-	if CustomConfig {
-		ApplyEnvOverrides(mconfig, "MEMBERLIST_")
+	mconfig, err := loadMemberlistConfig(memberlistConfigPath, WANNetwork, logger)
+	if err != nil {
+		level.Error(logger).Log("op", "startup", "error", err, "msg", "failed to load memberlist config")
+		return nil, err
 	}
 
 	// mconfig.Name MUST be equal to the spec.nodeName field of the speaker pod as we match it
@@ -342,102 +432,3 @@ func (sl *SpeakerList) memberlistWatchEvents() {
 	}
 }
 
-// Helper for custom config.
-
-// ApplyEnvOverrides mutates cfg based on env vars with the given prefix ("MEMBERLIST_").
-// Only overrides fields if the env var is set and valid.
-// Example env vars:
-//   MEMBERLIST_TCP_TIMEOUT="5s"
-//   MEMBERLIST_GOSSIP_INTERVAL="150ms"
-func ApplyEnvOverrides(cfg *memberlist.Config, prefix string) {
-	// Ints
-	envInt(&cfg.IndirectChecks, prefix, "INDIRECT_CHECKS", 0, 1_000_000)
-	envInt(&cfg.RetransmitMult, prefix, "RETRANSMIT_MULT", 0, 1_000_000)
-	envInt(&cfg.SuspicionMult, prefix, "SUSPICION_MULT", 0, 1_000_000)
-	envInt(&cfg.SuspicionMaxTimeoutMult, prefix, "SUSPICION_MAX_TIMEOUT_MULT", 0, 1_000_000)
-	envInt(&cfg.GossipNodes, prefix, "GOSSIP_NODES", 0, 1_000_000)
-	envInt(&cfg.AwarenessMaxMultiplier, prefix, "AWARENESS_MAX_MULTIPLIER", 0, 1_000_000)
-	envInt(&cfg.HandoffQueueDepth, prefix, "HANDOFF_QUEUE_DEPTH", 0, 10_000_000)
-	envInt(&cfg.UDPBufferSize, prefix, "UDP_BUFFER_SIZE", 0, 10_000_000)
-
-	// Durations
-	envDuration(&cfg.TCPTimeout, prefix, "TCP_TIMEOUT", 0, 24*time.Hour)
-	envDuration(&cfg.PushPullInterval, prefix, "PUSH_PULL_INTERVAL", 0, 24*time.Hour)
-	envDuration(&cfg.ProbeTimeout, prefix, "PROBE_TIMEOUT", 0, 24*time.Hour)
-	envDuration(&cfg.ProbeInterval, prefix, "PROBE_INTERVAL", 0, 24*time.Hour)
-	envDuration(&cfg.GossipInterval, prefix, "GOSSIP_INTERVAL", 0, 24*time.Hour)
-	envDuration(&cfg.GossipToTheDeadTime, prefix, "GOSSIP_TO_THE_DEAD_TIME", 0, 24*time.Hour)
-	envDuration(&cfg.QueueCheckInterval, prefix, "QUEUE_CHECK_INTERVAL", 0, 24*time.Hour)
-
-	// Bools
-	envBool(&cfg.GossipVerifyIncoming, prefix, "GOSSIP_VERIFY_INCOMING")
-	envBool(&cfg.GossipVerifyOutgoing, prefix, "GOSSIP_VERIFY_OUTGOING")
-	envBool(&cfg.DisableTcpPings, prefix, "DISABLE_TCP_PINGS")
-	envBool(&cfg.EnableCompression, prefix, "ENABLE_COMPRESSION")
-}
-
-func env(prefix, key string) (string, bool) {
-	k := prefix + strings.ToUpper(key)
-	v, ok := os.LookupEnv(k)
-	return strings.TrimSpace(v), ok
-}
-
-func envInt(dst *int, prefix, key string, min, max int) {
-	val, ok := env(prefix, key)
-	if ok {
-		overrideInt(dst, val, ok, min, max)
-	}
-}
-
-func envDuration(dst *time.Duration, prefix, key string, min, max time.Duration) {
-	val, ok := env(prefix, key)
-	if ok {
-		overrideDuration(dst, val, ok, min, max)
-	}
-}
-
-func envBool(dst *bool, prefix, key string) {
-	val, ok := env(prefix, key)
-	if ok {
-		overrideBool(dst, val, ok)
-	}
-}
-
-func overrideInt(dst *int, val string, ok bool, min, max int) {
-	if !ok {
-		return
-	}
-	i, err := strconv.Atoi(val)
-	if err != nil {
-		return
-	}
-	if i < min || i > max {
-		return
-	}
-	*dst = i
-}
-
-func overrideBool(dst *bool, val string, ok bool) {
-	if !ok {
-		return
-	}
-	b, err := strconv.ParseBool(val)
-	if err != nil {
-		return
-	}
-	*dst = b
-}
-
-func overrideDuration(dst *time.Duration, val string, ok bool, min, max time.Duration) {
-	if !ok {
-		return
-	}
-	d, err := time.ParseDuration(val)
-	if err != nil {
-		return
-	}
-	if d < min || d > max {
-		return
-	}
-	*dst = d
-}
