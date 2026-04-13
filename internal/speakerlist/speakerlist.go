@@ -58,17 +58,10 @@ type memberlistFileConfig struct {
 	QueueCheckInterval      string `json:"QueueCheckInterval"`
 }
 
-// loadMemberlistConfig returns a memberlist.Config seeded from DefaultLANConfig
-// (or DefaultWANConfig when wanConfig is true). If the file at path exists, it
-// is parsed as a complete JSON memberlist configuration and all fields are
-// applied unconditionally. A missing file is not an error; any other read or
-// parse error is.
-func loadMemberlistConfig(path string, wanConfig bool, logger log.Logger) (*memberlist.Config, error) {
-	cfg := memberlist.DefaultLANConfig()
-	if wanConfig {
-		cfg = memberlist.DefaultWANConfig()
-	}
-
+// tryToLoadMemberListConfig returns cfg unchanged if the file at path does not
+// exist. If the file exists it is parsed and its values are applied to cfg,
+// which is then returned. Any read or parse error is returned as an error.
+func tryToLoadMemberListConfig(path string, cfg *memberlist.Config, logger log.Logger) (*memberlist.Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -161,7 +154,12 @@ func New(logger log.Logger, nodeName, bindAddr, bindPort, secret, namespace, lab
 		return &sl, nil
 	}
 
-	mconfig, err := loadMemberlistConfig(memberlistConfigPath, WANNetwork, logger)
+	mconfig := memberlist.DefaultLANConfig()
+	if WANNetwork {
+		mconfig = memberlist.DefaultWANConfig()
+	}
+
+	mconfig, err := tryToLoadMemberListConfig(memberlistConfigPath, mconfig, logger)
 	if err != nil {
 		level.Error(logger).Log("op", "startup", "error", err, "msg", "failed to load memberlist config")
 		return nil, err
