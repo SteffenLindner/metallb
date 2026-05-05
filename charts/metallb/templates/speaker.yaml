@@ -407,6 +407,7 @@ spec:
             mountPath: /etc/metrics
             readOnly: true
           {{- end }}
+        {{- end}}
       {{- if .Values.speaker.frr.enabled }}
       - name: frr
         securityContext:
